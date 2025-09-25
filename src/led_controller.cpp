@@ -1,5 +1,7 @@
 #include "led_controller.h"
 #include <Arduino.h>
+#include "storage.h"
+#include <cstring>
 
 namespace LedController
 {
@@ -27,6 +29,12 @@ namespace LedController
     static unsigned long lastMs = 0;
     static unsigned long lastToggleMs = 0;
     static bool blinkState = false;
+    // saved state before entering breathe-wait so we can restore on reconnect
+    static Mode savedModeBeforeWait = MODE_BREATHE;
+    static int savedBlinkHzBeforeWait = 2;
+    static int savedBreathePeriodBeforeWait = 1500;
+    static uint8_t savedBrightnessBeforeWait = 128;
+    static bool hasSavedBeforeWait = false;
 
     // helper to actually apply PWM duty
     static void applyDuty(uint8_t duty)
@@ -40,12 +48,33 @@ namespace LedController
         // configure LEDC for gpio12
         ledcSetup(LEDC_CHANNEL, LEDC_FREQ, LEDC_RES_BITS);
         ledcAttachPin(LED_PIN, LEDC_CHANNEL);
-        currentMode = MODE_BREATHE;
+        // initialize timing
         lastMs = millis();
         lastToggleMs = lastMs;
         blinkState = false;
-        // initialize to off
-        applyDuty(0);
+
+        // Apply saved state from Storage (if any). This ensures that
+        // blink frequency and breathe period are restored after reboot.
+        const char *m = Storage::getSavedMode();
+        if (m && strcmp(m, "on") == 0)
+        {
+            setModeOn();
+        }
+        else if (m && strcmp(m, "off") == 0)
+        {
+            setModeOff();
+        }
+        else if (m && strcmp(m, "blink") == 0)
+        {
+            setModeBlink(Storage::getSavedBlinkHz());
+        }
+        else // default to breathe (or any other unrecognized value)
+        {
+            setModeBreathe(Storage::getSavedBreathePeriod());
+        }
+
+        // Apply saved brightness
+        setBrightness(Storage::getSavedBrightness());
     }
 
     void update()
@@ -135,13 +164,51 @@ namespace LedController
 
     void onClientConnected()
     {
-        // cancel any breathe-wait state
+        // cancel any breathe-wait state and restore previous mode if we saved it
         if (currentMode == MODE_BREATHE_WAIT)
-            currentMode = MODE_BREATHE;
+        {
+            if (hasSavedBeforeWait)
+            {
+                // restore saved parameters first
+                setBrightness(savedBrightnessBeforeWait);
+                switch (savedModeBeforeWait)
+                {
+                case MODE_ON:
+                    setModeOn();
+                    break;
+                case MODE_OFF:
+                    setModeOff();
+                    break;
+                case MODE_BLINK:
+                    setModeBlink(savedBlinkHzBeforeWait);
+                    break;
+                case MODE_BREATHE:
+                default:
+                    setModeBreathe(savedBreathePeriodBeforeWait);
+                    break;
+                }
+                hasSavedBeforeWait = false;
+            }
+            else
+            {
+                // no saved state: just return to normal breathe
+                currentMode = MODE_BREATHE;
+            }
+        }
     }
 
     void enterBreatheWait()
     {
+        // when entering breathe-wait, save current runtime state so it can be
+        // restored when a client reconnects
+        if (!hasSavedBeforeWait && currentMode != MODE_BREATHE_WAIT)
+        {
+            savedModeBeforeWait = currentMode;
+            savedBlinkHzBeforeWait = blinkHz;
+            savedBreathePeriodBeforeWait = breathePeriod;
+            savedBrightnessBeforeWait = brightness;
+            hasSavedBeforeWait = true;
+        }
         currentMode = MODE_BREATHE_WAIT;
     }
 

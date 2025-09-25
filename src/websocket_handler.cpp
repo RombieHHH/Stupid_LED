@@ -2,6 +2,7 @@
 #include "led_controller.h"
 #include "storage.h"
 #include "status_reporter.h"
+#include "network.h"
 #include <ArduinoJson.h>
 
 static WebSocketsServer *ws = nullptr;
@@ -37,9 +38,14 @@ void handleWSMessage(uint8_t num, WStype_t type, uint8_t *payload, size_t length
     {
         connectedClients = max(0, connectedClients - 1);
         Serial.printf("Websocket disconnected clients=%d\n", connectedClients);
-        if (connectedClients == 0)
+        // Only enter breathe-wait when there are no WiFi stations connected.
+        // WebSocket disconnect alone (e.g. temporary network blip) should not
+        // force the LED into breathe mode if the client still has WiFi association.
+        int stations = Network::getClientCount();
+        Serial.printf("WiFi stations=%d\n", stations);
+        if (stations == 0)
         {
-            // no ws clients -> enter breathe waiting mode
+            // no wifi stations -> enter breathe waiting mode
             LedController::enterBreatheWait();
         }
         return;
