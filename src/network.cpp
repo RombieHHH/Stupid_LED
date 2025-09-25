@@ -54,12 +54,12 @@ void Network::begin(const char *ssid, const char *password)
     Serial.println("HTTP server started");
 
     // prepare index.html in SPIFFS if not present (optional simple built-in)
-        if (!SPIFFS.exists("/index.html"))
+    if (!SPIFFS.exists("/index.html"))
+    {
+        File f = SPIFFS.open("/index.html", "w");
+        if (f)
         {
-                File f = SPIFFS.open("/index.html", "w");
-                if (f)
-                {
-                        f.print(R"rawliteral(
+            f.print(R"rawliteral(
 <!doctype html>
 <html lang="en">
 <head>
@@ -83,6 +83,7 @@ void Network::begin(const char *ssid, const char *password)
         .flex{display:flex;gap:8px}
         .right{text-align:right}
         footer{margin-top:14px;font-size:12px;color:var(--muted);text-align:center}
+        .hidden{display:none}
     </style>
 </head>
 <body>
@@ -110,24 +111,31 @@ void Network::begin(const char *ssid, const char *password)
                     <label>Brightness <span id="bval">128</span></label>
                     <input id="b" type="range" min="0" max="255" value="128" oninput="onBrightness(this.value)" />
                 </div>
-                <div style="width:180px">
+            </div>
+
+            <!-- Blink 控件 -->
+            <div id="blinkControls" class="row hidden">
+                <div style="flex:1">
                     <label>Blink Hz</label>
                     <input id="hz" type="range" min="1" max="20" value="2" oninput="onHz(this.value)" />
                     <input id="hznum" type="number" min="1" max="20" value="2" oninput="onHz(this.value)" />
                 </div>
+                <div style="width:180px">
+                    <label>Apply</label>
+                    <button class="btn" onclick="applyBlink()">Apply Blink</button>
+                </div>
             </div>
 
-            <div class="row">
-                <div class="col">
-                    <label>Breathe period (ms) <span id="periodval">1500</span></label>
+            <!-- Breathe 控件 -->
+            <div id="breatheControls" class="row hidden">
+                <div style="flex:1">
+                    <label>Breathe period (ms)</label>
                     <input id="period" type="range" min="200" max="5000" step="50" value="1500" oninput="onPeriod(this.value)" />
+                    <input id="periodnum" type="number" min="200" max="5000" step="50" value="1500" oninput="onPeriod(this.value)" />
                 </div>
                 <div style="width:180px">
                     <label>Apply</label>
-                    <div class="flex">
-                        <button class="btn" onclick="applyBlink()">Apply Blink</button>
-                        <button class="btn" onclick="applyBreathe()">Apply Breathe</button>
-                    </div>
+                    <button class="btn" onclick="applyBreathe()">Apply Breathe</button>
                 </div>
             </div>
 
@@ -150,36 +158,68 @@ void Network::begin(const char *ssid, const char *password)
             ws.addEventListener('message', (evt)=>{
                 try{
                     const obj = JSON.parse(evt.data);
+                    // 状态只显示，不再自动覆盖滑条
                     document.getElementById('status').innerText = JSON.stringify(obj, null, 2);
-                    // update UI from status
-                    if(obj.mode) document.querySelectorAll('.mode-btn').forEach(b=>{ b.style.borderColor = 'rgba(255,255,255,0.04)'; });
-                    if(obj.brightness!==undefined){ document.getElementById('b').value = obj.brightness; document.getElementById('bval').innerText = obj.brightness; }
-                    if(obj.hz!==undefined){ document.getElementById('hz').value = obj.hz; document.getElementById('hznum').value = obj.hz; }
-                    if(obj.period_ms!==undefined){ document.getElementById('period').value = obj.period_ms; document.getElementById('periodval').innerText = obj.period_ms; }
+                    if(obj.mode) updateModeUI(obj.mode);
                 }catch(e){ console.log('invalid json', e); }
             });
         }
 
         function send(obj){ if(ws && ws.readyState===1) ws.send(JSON.stringify(obj)); }
-        function setMode(m){ send({cmd:'set_mode', mode:m}); }
+
+        function setMode(m){ 
+            send({cmd:'set_mode', mode:m}); 
+            updateModeUI(m);
+        }
+
+        function updateModeUI(mode){
+            document.querySelectorAll('.mode-btn').forEach(b=>b.style.borderColor='rgba(255,255,255,0.04)');
+            document.getElementById('blinkControls').classList.add('hidden');
+            document.getElementById('breatheControls').classList.add('hidden');
+            if(mode==='blink'){ document.getElementById('blinkControls').classList.remove('hidden'); }
+            if(mode==='breathe'){ document.getElementById('breatheControls').classList.remove('hidden'); }
+        }
+
         function onBrightness(v){ document.getElementById('bval').innerText = v; }
-        function onHz(v){ document.getElementById('hz').value = v; document.getElementById('hznum').value = v; }
-        function onPeriod(v){ document.getElementById('periodval').innerText = v; }
-        function applyBlink(){ const hz = parseInt(document.getElementById('hz').value||2); send({cmd:'set_mode', mode:'blink', hz:hz}); }
-        function applyBreathe(){ const p = parseInt(document.getElementById('period').value||1500); send({cmd:'set_mode', mode:'breathe', period_ms:p}); }
-        function applyBrightness(){ const d = parseInt(document.getElementById('b').value||128); send({cmd:'set_brightness', duty:d}); }
-        // send brightness on change end (debounce)
+        function onHz(v){ 
+            document.getElementById('hz').value = v; 
+            document.getElementById('hznum').value = v; 
+        }
+        function onPeriod(v){ 
+            document.getElementById('period').value = v; 
+            document.getElementById('periodnum').value = v; 
+        }
+
+        function applyBlink(){ 
+            const hz = parseInt(document.getElementById('hz').value||2); 
+            send({cmd:'set_mode', mode:'blink', hz:hz}); 
+        }
+        function applyBreathe(){ 
+            const p = parseInt(document.getElementById('period').value||1500); 
+            send({cmd:'set_mode', mode:'breathe', period_ms:p}); 
+        }
+        function applyBrightness(){ 
+            const d = parseInt(document.getElementById('b').value||128); 
+            send({cmd:'set_brightness', duty:d}); 
+        }
+
         let bTimeout;
-        document.addEventListener('input', (e)=>{ if(e.target && e.target.id==='b'){ clearTimeout(bTimeout); bTimeout=setTimeout(()=>{ applyBrightness(); }, 200); } });
+        document.addEventListener('input', (e)=>{ 
+            if(e.target && e.target.id==='b'){ 
+                clearTimeout(bTimeout); 
+                bTimeout=setTimeout(()=>{ applyBrightness(); }, 200); 
+            } 
+        });
 
         connect();
     </script>
 </body>
 </html>
+
             )rawliteral");
-                        f.close();
-                }
+            f.close();
         }
+    }
 
     // start websocket server on port 81
     wsServer = new WebSocketsServer(81);
