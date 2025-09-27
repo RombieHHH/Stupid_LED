@@ -26,7 +26,7 @@ void setup()
     Serial.println("SPIFFS ready");
   }
 
-  // 加载保存的状态（若有）
+  // 加载保存的状态
   Storage::loadState();
 
   // 初始化 LED 控制器（会读取 Storage 中的初始 state）

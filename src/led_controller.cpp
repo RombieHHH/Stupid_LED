@@ -210,6 +210,8 @@ namespace LedController
             hasSavedBeforeWait = true;
         }
         currentMode = MODE_BREATHE_WAIT;
+        breathePeriod = 800;
+        brightness = 255;
     }
 
     const char *getModeStr()

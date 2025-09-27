@@ -166,3 +166,8 @@ void WebsocketHandler::broadcastText(const String &s)
     String tmp = s;
     ws->broadcastTXT(tmp);
 }
+
+int WebsocketHandler::getConnectedCount()
+{
+    return connectedClients;
+}

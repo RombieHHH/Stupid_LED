@@ -11,55 +11,7 @@ static int prevStations = -1;
 
 static void handleRoot()
 {
-    // 尝试从 SPIFFS 读取 /index.html
-    if (SPIFFS.exists("/index.html"))
-    {
-        File f = SPIFFS.open("/index.html", "r");
-        if (f)
-        {
-            httpServer.streamFile(f, "text/html");
-            f.close();
-            return;
-        }
-    }
-    // fallback simple page
-    httpServer.send(200, "text/html", "<html><body><h3>ESP32 WebSocket LED</h3></body></html>");
-}
-
-// Note: older/newer esp32 Arduino cores expose different WiFi event enums/unions.
-// To avoid compilation issues across cores, we don't register a WiFi event
-// callback here. Instead we rely on runtime queries (WiFi.softAPgetStationNum())
-// via Network::getClientCount().
-
-void Network::begin(const char *ssid, const char *password)
-{
-    // Don't register a WiFi event handler to keep compatibility with multiple
-    // Arduino-ESP32 core versions.
-    Serial.println("Starting SoftAP...");
-    if (password && strlen(password) >= 8)
-    {
-        WiFi.softAP(ssid, password);
-    }
-    else
-    {
-        WiFi.softAP(ssid);
-    }
-    IPAddress apIP = WiFi.softAPIP();
-    Serial.print("AP IP: ");
-    Serial.println(apIP);
-
-    // start HTTP server
-    httpServer.on("/", handleRoot);
-    httpServer.begin();
-    Serial.println("HTTP server started");
-
-    // prepare index.html in SPIFFS if not present (optional simple built-in)
-    if (!SPIFFS.exists("/index.html"))
-    {
-        File f = SPIFFS.open("/index.html", "w");
-        if (f)
-        {
-            f.print(R"rawliteral(
+    httpServer.send(200, "text/html", R"rawliteral(
 <!doctype html>
 <html lang="en">
 <head>
@@ -150,6 +102,13 @@ void Network::begin(const char *ssid, const char *password)
 
     <script>
         let ws;
+        // server-known values (keep in sync with server broadcasts)
+        let serverHz = 2;
+        let serverPeriod = 1500;
+        // editing state / timers for revert behavior
+        let editingHz = false, editingPeriod = false;
+        let hzTimer = null, periodTimer = null;
+
         function connect(){
             const url = 'ws://' + location.hostname + ':81/';
             ws = new WebSocket(url);
@@ -158,9 +117,17 @@ void Network::begin(const char *ssid, const char *password)
             ws.addEventListener('message', (evt)=>{
                 try{
                     const obj = JSON.parse(evt.data);
-                    // 状态只显示，不再自动覆盖滑条
                     document.getElementById('status').innerText = JSON.stringify(obj, null, 2);
                     if(obj.mode) updateModeUI(obj.mode);
+                    // keep server-known values in sync; only update UI when user is not currently editing
+                    if(typeof obj.hz !== 'undefined'){
+                        serverHz = obj.hz;
+                        if(!editingHz){ document.getElementById('hz').value = serverHz; document.getElementById('hznum').value = serverHz; }
+                    }
+                    if(typeof obj.period_ms !== 'undefined'){
+                        serverPeriod = obj.period_ms;
+                        if(!editingPeriod){ document.getElementById('period').value = serverPeriod; document.getElementById('periodnum').value = serverPeriod; }
+                    }
                 }catch(e){ console.log('invalid json', e); }
             });
         }
@@ -176,26 +143,65 @@ void Network::begin(const char *ssid, const char *password)
             document.querySelectorAll('.mode-btn').forEach(b=>b.style.borderColor='rgba(255,255,255,0.04)');
             document.getElementById('blinkControls').classList.add('hidden');
             document.getElementById('breatheControls').classList.add('hidden');
-            if(mode==='blink'){ document.getElementById('blinkControls').classList.remove('hidden'); }
-            if(mode==='breathe'){ document.getElementById('breatheControls').classList.remove('hidden'); }
+            // also disable inputs when not active to prevent accidental edits
+            const hzEl = document.getElementById('hz');
+            const hzNum = document.getElementById('hznum');
+            const pEl = document.getElementById('period');
+            const pNum = document.getElementById('periodnum');
+            if(mode==='blink'){
+                document.getElementById('blinkControls').classList.remove('hidden');
+                hzEl.disabled = false; hzNum.disabled = false;
+            } else {
+                hzEl.disabled = true; hzNum.disabled = true;
+            }
+            if(mode==='breathe'){
+                document.getElementById('breatheControls').classList.remove('hidden');
+                pEl.disabled = false; pNum.disabled = false;
+            } else {
+                pEl.disabled = true; pNum.disabled = true;
+            }
         }
 
         function onBrightness(v){ document.getElementById('bval').innerText = v; }
+
         function onHz(v){ 
+            // user is editing the hz; start/refresh a 5s revert timer
+            editingHz = true;
+            clearTimeout(hzTimer);
             document.getElementById('hz').value = v; 
             document.getElementById('hznum').value = v; 
+            hzTimer = setTimeout(()=>{
+                // revert to last server value if apply wasn't clicked
+                editingHz = false;
+                document.getElementById('hz').value = serverHz;
+                document.getElementById('hznum').value = serverHz;
+            }, 5000);
         }
+
         function onPeriod(v){ 
+            // user is editing the period; start/refresh a 5s revert timer
+            editingPeriod = true;
+            clearTimeout(periodTimer);
             document.getElementById('period').value = v; 
             document.getElementById('periodnum').value = v; 
+            periodTimer = setTimeout(()=>{
+                // revert to last server value if apply wasn't clicked
+                editingPeriod = false;
+                document.getElementById('period').value = serverPeriod;
+                document.getElementById('periodnum').value = serverPeriod;
+            }, 5000);
         }
 
         function applyBlink(){ 
-            const hz = parseInt(document.getElementById('hz').value||2); 
+            const hz = parseInt(document.getElementById('hz').value||2);
+            // clear revert timer and mark editing done
+            clearTimeout(hzTimer); editingHz = false; serverHz = hz;
             send({cmd:'set_mode', mode:'blink', hz:hz}); 
         }
         function applyBreathe(){ 
-            const p = parseInt(document.getElementById('period').value||1500); 
+            const p = parseInt(document.getElementById('period').value||1500);
+            // clear revert timer and mark editing done
+            clearTimeout(periodTimer); editingPeriod = false; serverPeriod = p;
             send({cmd:'set_mode', mode:'breathe', period_ms:p}); 
         }
         function applyBrightness(){ 
@@ -215,11 +221,29 @@ void Network::begin(const char *ssid, const char *password)
     </script>
 </body>
 </html>
+)rawliteral");
+}
 
-            )rawliteral");
-            f.close();
-        }
+void Network::begin(const char *ssid, const char *password)
+{
+    Serial.println("Starting SoftAP...");
+    if (password && strlen(password) >= 8)
+    {
+        WiFi.softAP(ssid, password);
     }
+    else
+    {
+        WiFi.softAP(ssid);
+    }
+    IPAddress apIP = WiFi.softAPIP();
+    Serial.printf("SSID: %s  Password: %s\n", ssid, password ? password : "(none)");
+    Serial.print("AP IP: ");
+    Serial.println(apIP);
+
+    // start HTTP server
+    httpServer.on("/", handleRoot);
+    httpServer.begin();
+    Serial.println("HTTP server started");
 
     // start websocket server on port 81
     wsServer = new WebSocketsServer(81);
