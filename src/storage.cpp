@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include "led_controller.h"
 
-// simple in-memory cached values
+// 内存缓存的保存值
 static char savedMode[16] = "breathe";
 static int savedBlinkHz = 2;
 static int savedBreathePeriod = 1500;
@@ -16,15 +16,14 @@ bool Storage::begin()
     {
         return false;
     }
-    // try load existing state
+    // 尝试加载已存在的 state.json
     loadState();
     return true;
 }
 
 void Storage::saveState()
 {
-    // build JSON from current LedController state
-    // include led_controller.h above and call its getters directly
+    // 根据当前 LedController 状态构建 JSON
 
     StaticJsonDocument<256> doc;
     doc["mode"] = LedController::getModeStr();
@@ -40,7 +39,7 @@ void Storage::saveState()
     }
     serializeJson(doc, f);
     f.close();
-    // update cached
+    // 更新内存缓存
     strlcpy(savedMode, doc["mode"] | "breathe", sizeof(savedMode));
     savedBlinkHz = doc["hz"] | savedBlinkHz;
     savedBreathePeriod = doc["period_ms"] | savedBreathePeriod;
@@ -59,7 +58,7 @@ void Storage::loadState()
     File f = SPIFFS.open("/state.json", FILE_READ);
     if (!f)
     {
-        Serial.println("Failed to open /state.json");
+        Serial.println("fail to open /state.json");
         return;
     }
     StaticJsonDocument<256> doc;
@@ -67,7 +66,7 @@ void Storage::loadState()
     f.close();
     if (err)
     {
-        Serial.println("Failed parse state.json");
+        Serial.println("fail to parse state.json");
         return;
     }
     const char *mode = doc["mode"] | "breathe";

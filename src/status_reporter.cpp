@@ -13,6 +13,7 @@ namespace StatusReporter
 {
     void begin()
     {
+        // 记录启动时间用于 uptime 计算
         startMillis = millis();
     }
 
@@ -21,9 +22,9 @@ namespace StatusReporter
         StaticJsonDocument<256> doc;
         doc["evt"] = "status";
         doc["uptime"] = (unsigned long)((millis() - startMillis) / 1000);
-        // determine RSSI:
-        // - if we have SoftAP clients, try to get their RSSI via esp_wifi_ap_get_sta_list()
-        // - else if we're connected as STA, use WiFi.RSSI()
+    // 计算 RSSI：
+    // - 如果有 SoftAP 客户端，尝试通过 esp_wifi_ap_get_sta_list() 获取客户端的 RSSI
+    // - 否则如果作为 STA 连接，则使用 WiFi.RSSI()
         int rssiVal = 0;
         if (WiFi.softAPgetStationNum() > 0)
         {
@@ -50,7 +51,8 @@ namespace StatusReporter
         doc["mode"] = LedController::getModeStr();
         doc["hz"] = LedController::getBlinkHz();
         doc["period_ms"] = LedController::getBreathePeriod();
-        doc["brightness"] = LedController::getBrightness();
+    doc["brightness"] = LedController::getBrightness();
+    doc["dropped"] = WebsocketHandler::getDropped();
         // report counts: wifi stations (SoftAP clients) and websocket connections
         doc["wifi_clients"] = WiFi.softAPgetStationNum();
         doc["ws_clients"] = WebsocketHandler::getConnectedCount();
@@ -90,8 +92,9 @@ namespace StatusReporter
         doc["mode"] = LedController::getModeStr();
         doc["hz"] = LedController::getBlinkHz();
         doc["period_ms"] = LedController::getBreathePeriod();
-        doc["brightness"] = LedController::getBrightness();
-        doc["wifi_clients"] = WiFi.softAPgetStationNum();
+    doc["brightness"] = LedController::getBrightness();
+    doc["dropped"] = WebsocketHandler::getDropped();
+    doc["wifi_clients"] = WiFi.softAPgetStationNum();
         doc["ws_clients"] = WebsocketHandler::getConnectedCount();
 
         String out;

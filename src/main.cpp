@@ -7,7 +7,7 @@
 
 // Config
 #define AP_SSID "ESP32C3_LED_AP"
-#define AP_PSK "12345678" // 推荐至少8位，若想开放则留空
+#define AP_PSK "12345678"  
 
 unsigned long lastStatusMillis = 0;
 
@@ -16,7 +16,7 @@ void setup()
   Serial.begin(115200);
   delay(200);
 
-  // 初始化 SPIFFS（用于保存 state + 提供网页）
+  // 初始化 SPIFFS（用于持久化 state 并提供网页）
   if (!Storage::begin())
   {
     Serial.println("SPIFFS init failed!");
@@ -26,19 +26,19 @@ void setup()
     Serial.println("SPIFFS ready");
   }
 
-  // 加载保存的状态
+  // 加载保存的状态（如果有）
   Storage::loadState();
 
-  // 初始化 LED 控制器（会读取 Storage 中的初始 state）
+  // 初始化 LED 控制器（从 Storage 读取初始状态并生效）
   LedController::begin();
 
-  // 初始化网络（SoftAP + HTTP + WebSocket server）
+  // 初始化网络（SoftAP、HTTP 与 WebSocket 服务器）
   Network::begin(AP_SSID, AP_PSK);
 
-  // 初始化 websocket handler（需要 network 提供 wsServer 引用）
+  // 初始化 websocket handler（使用 Network 提供的 wsServer）
   WebsocketHandler::begin(Network::getWebSocketServer());
 
-  // 初始化 status 报告者
+  // 初始化状态上报模块
   StatusReporter::begin();
 
   Serial.println("Setup complete");
@@ -46,7 +46,7 @@ void setup()
 
 void loop()
 {
-  // WebSocket library 的 loop 调用
+  // 轮询网络与 WebSocket
   Network::loop();
 
   // 轮询 LED 控制器（用于 breathe/flash 时间步进）
@@ -63,5 +63,5 @@ void loop()
     StatusReporter::broadcast();
   }
 
-  delay(1); // 稍微让出 CPU
+  delay(1); // 让出少量 CPU 时间
 }

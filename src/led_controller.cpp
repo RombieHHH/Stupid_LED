@@ -14,7 +14,7 @@ namespace LedController
         MODE_BREATHE_WAIT
     };
 
-    // Hardware config
+    // 硬件配置
     constexpr int LED_PIN = 12; // gpio12
     constexpr int LEDC_CHANNEL = 0;
     constexpr int LEDC_FREQ = 5000;  // base PWM frequency
@@ -25,7 +25,7 @@ namespace LedController
     static int breathePeriod = 1500;
     static uint8_t brightness = 128; // max duty 0-255
 
-    // runtime state
+    // 运行时状态
     static unsigned long lastMs = 0;
     static unsigned long lastToggleMs = 0;
     static bool blinkState = false;
@@ -36,25 +36,24 @@ namespace LedController
     static uint8_t savedBrightnessBeforeWait = 128;
     static bool hasSavedBeforeWait = false;
 
-    // helper to actually apply PWM duty
+    // 实际写入 PWM 占空比的助手函数
     static void applyDuty(uint8_t duty)
     {
-        // ledcWrite expects 0..(2^bits-1) when configured with ledcSetup
+        // ledcWrite 在已配置 ledcSetup 时期望 0..(2^bits-1) 的值
         ledcWrite(LEDC_CHANNEL, duty);
     }
 
     void begin()
     {
-        // configure LEDC for gpio12
+    // 配置 LEDC 用于 gpio12
         ledcSetup(LEDC_CHANNEL, LEDC_FREQ, LEDC_RES_BITS);
         ledcAttachPin(LED_PIN, LEDC_CHANNEL);
-        // initialize timing
+    // 初始化计时器
         lastMs = millis();
         lastToggleMs = lastMs;
         blinkState = false;
 
-        // Apply saved state from Storage (if any). This ensures that
-        // blink frequency and breathe period are restored after reboot.
+    // 从 Storage 中应用保存的状态（如果有）。保证重启后恢复闪烁频率与呼吸周期。
         const char *m = Storage::getSavedMode();
         if (m && strcmp(m, "on") == 0)
         {
@@ -73,7 +72,7 @@ namespace LedController
             setModeBreathe(Storage::getSavedBreathePeriod());
         }
 
-        // Apply saved brightness
+        // 应用保存的亮度值
         setBrightness(Storage::getSavedBrightness());
     }
 
@@ -98,7 +97,7 @@ namespace LedController
                 applyDuty(0);
                 break;
             }
-            unsigned long period = 1000u / (unsigned long)blinkHz; // ms per half-cycle? we'll toggle every period/2
+            unsigned long period = 1000u / (unsigned long)blinkHz; // 计算周期（ms）
             unsigned long half = period / 2;
             if (now - lastToggleMs >= half)
             {
@@ -111,14 +110,14 @@ namespace LedController
         case MODE_BREATHE:
         case MODE_BREATHE_WAIT:
         {
-            // compute phase [0..1)
+            // 计算相位 [0..1)
             if (breathePeriod <= 0)
             {
                 applyDuty(0);
                 break;
             }
             float phase = fmod((float)now, (float)breathePeriod) / (float)breathePeriod; // 0..1
-            // smooth breathe curve using (1 - cos(2*pi*phase))/2
+            // 使用 (1 - cos(2*pi*phase))/2 来实现平滑呼吸曲线
             float val = (1.0f - cosf(2.0f * 3.14159265f * phase)) * 0.5f;
             // if in breathe wait, reduce amplitude slightly
             if (currentMode == MODE_BREATHE_WAIT)
@@ -155,7 +154,6 @@ namespace LedController
     void setBrightness(uint8_t duty)
     {
         brightness = duty;
-        // immediately apply new brightness for modes that use it
         if (currentMode == MODE_ON)
             applyDuty(brightness);
         else if (currentMode == MODE_BLINK && blinkState)
@@ -164,12 +162,12 @@ namespace LedController
 
     void onClientConnected()
     {
-        // cancel any breathe-wait state and restore previous mode if we saved it
+        // 取消任何 breathe-wait 状态，并在有保存的前置状态时恢复它
         if (currentMode == MODE_BREATHE_WAIT)
         {
             if (hasSavedBeforeWait)
             {
-                // restore saved parameters first
+                // 恢复之前保存的参数
                 setBrightness(savedBrightnessBeforeWait);
                 switch (savedModeBeforeWait)
                 {
@@ -191,7 +189,7 @@ namespace LedController
             }
             else
             {
-                // no saved state: just return to normal breathe
+                // 未保存前置状态：回到普通呼吸模式
                 currentMode = MODE_BREATHE;
             }
         }
@@ -199,8 +197,7 @@ namespace LedController
 
     void enterBreatheWait()
     {
-        // when entering breathe-wait, save current runtime state so it can be
-        // restored when a client reconnects
+        // 进入 breathe-wait 前保存当前运行状态，以便在客户端重新连接时恢复
         if (!hasSavedBeforeWait && currentMode != MODE_BREATHE_WAIT)
         {
             savedModeBeforeWait = currentMode;
@@ -210,6 +207,7 @@ namespace LedController
             hasSavedBeforeWait = true;
         }
         currentMode = MODE_BREATHE_WAIT;
+        // 在等待模式下使用较快的小幅呼吸作为空闲视觉效果
         breathePeriod = 800;
         brightness = 255;
     }

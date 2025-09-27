@@ -6,7 +6,7 @@
 
 static WebServer httpServer(80);
 static WebSocketsServer *wsServer = nullptr;
-// track previous station count to detect connect/disconnect events
+// 跟踪上一次的 station 数，用于检测 WiFi 客户端连接/断开事件
 static int prevStations = -1;
 
 static void handleRoot()
@@ -92,8 +92,8 @@ static void handleRoot()
             </div>
 
             <div style="margin-top:14px">
-                <label>Status</label>
-                <div id="status" class="status">no data</div>
+                <label>Message</label>
+                <div id="message" class="status">no data</div>
             </div>
 
             <footer>Use controls or WebSocket to control the LED. Page reconnects automatically.</footer>
@@ -117,9 +117,10 @@ static void handleRoot()
             ws.addEventListener('message', (evt)=>{
                 try{
                     const obj = JSON.parse(evt.data);
-                    document.getElementById('status').innerText = JSON.stringify(obj, null, 2);
+                    // Show latest full message JSON in the Message box (including dropped)
+                    document.getElementById('message').innerText = JSON.stringify(obj, null, 2);
+                    // keep UI controls in sync when status-like messages arrive
                     if(obj.mode) updateModeUI(obj.mode);
-                    // keep server-known values in sync; only update UI when user is not currently editing
                     if(typeof obj.hz !== 'undefined'){
                         serverHz = obj.hz;
                         if(!editingHz){ document.getElementById('hz').value = serverHz; document.getElementById('hznum').value = serverHz; }
@@ -240,19 +241,19 @@ void Network::begin(const char *ssid, const char *password)
     Serial.print("AP IP: ");
     Serial.println(apIP);
 
-    // start HTTP server
+    // 启动 HTTP 服务器
     httpServer.on("/", handleRoot);
     httpServer.begin();
     Serial.println("HTTP server started");
 
-    // start websocket server on port 81
+    // 在81端口启动 WebSocket 服务器
     wsServer = new WebSocketsServer(81);
     wsServer->begin();
     wsServer->onEvent([](uint8_t num, WStype_t type, uint8_t *payload, size_t length)
                       {
-    // delegate to WebsocketHandler (we will get a pointer to wsServer in websocket module)
-    // but since websocket_handler may not be linked here, we will let websocket_handler attach its callback later.
-    // For safety, print basic info
+    // 将事件转发给 WebsocketHandler（websocket 模块会获取 wsServer 的指针）
+    // 如果 websocket_handler 未链接到这里，websocket_handler 会在 begin 时自行注册回调。
+
     if(type == WStype_CONNECTED){
       Serial.printf("WS client #%d connected\n", num);
     } else if(type == WStype_DISCONNECTED){
@@ -261,7 +262,7 @@ void Network::begin(const char *ssid, const char *password)
 
     Serial.println("WebSocket server started on port 81");
 
-    // initialize prevStations so we don't print a connect/disconnect on boot
+    // 初始化 prevStations，避免启动时打印连接/断开信息
     prevStations = WiFi.softAPgetStationNum();
 }
 
@@ -271,20 +272,21 @@ void Network::loop()
     if (wsServer)
         wsServer->loop();
 
-    // monitor WiFi station count and notify on changes
+    // 检测wifi连接数量并更新新状态
+    // 检测 WiFi station 连接/断开事件
     int stations = WiFi.softAPgetStationNum();
     if (stations != prevStations)
     {
         if (stations == 0)
         {
             Serial.println("WiFi: no stations connected");
-            // no wifi stations -> enter breathe waiting mode
+            // wifi连接断开，进入呼吸模式
             LedController::enterBreatheWait();
         }
         else
         {
             Serial.printf("WiFi: stations connected=%d\n", stations);
-            // when user connects via WiFi, cancel breathe wait
+            // 有新的wifi连接，退出呼吸模式
             LedController::onClientConnected();
         }
         prevStations = stations;

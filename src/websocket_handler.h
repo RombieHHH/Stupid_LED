@@ -7,4 +7,5 @@ namespace WebsocketHandler
     void loop();
     void broadcastText(const String &s);
     int getConnectedCount();
+    int getDropped();
 }

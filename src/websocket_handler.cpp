@@ -8,8 +8,9 @@
 static WebSocketsServer *ws = nullptr;
 static int connectedClients = 0;
 static unsigned long lastMsgMillis = 0;
-static uint32_t dropped = 0; // simple dropped counter for backpressure
+static uint32_t dropped = 0; // 用于记录在无客户端时被丢弃的广播计数（背压统计）
 
+// 向单个客户端发送错误事件
 void sendError(uint8_t num, const char *code, const char *msg)
 {
     StaticJsonDocument<256> doc;
@@ -28,9 +29,8 @@ void handleWSMessage(uint8_t num, WStype_t type, uint8_t *payload, size_t length
     {
         connectedClients++;
         Serial.printf("Websocket connected clients=%d\n", connectedClients);
-        // cancel breathe wait if necessary
+        // 客户端连接：取消 breathe-wait，并立即发送状态给该客户端
         LedController::onClientConnected();
-        // send immediate status
         StatusReporter::sendTo(num);
         return;
     }
@@ -38,14 +38,12 @@ void handleWSMessage(uint8_t num, WStype_t type, uint8_t *payload, size_t length
     {
         connectedClients = max(0, connectedClients - 1);
         Serial.printf("Websocket disconnected clients=%d\n", connectedClients);
-        // Only enter breathe-wait when there are no WiFi stations connected.
-        // WebSocket disconnect alone (e.g. temporary network blip) should not
-        // force the LED into breathe mode if the client still has WiFi association.
+        // 仅当 SoftAP 上没有 station（WiFi 客户端）时才进入 breathe-wait。
+        // 这样可以避免单纯 WS 断开（例如短暂网络抖动）导致不必要的模式切换。
         int stations = Network::getClientCount();
         Serial.printf("WiFi stations=%d\n", stations);
         if (stations == 0)
         {
-            // no wifi stations -> enter breathe waiting mode
             LedController::enterBreatheWait();
         }
         return;
@@ -53,7 +51,7 @@ void handleWSMessage(uint8_t num, WStype_t type, uint8_t *payload, size_t length
     else if (type == WStype_TEXT)
     {
         lastMsgMillis = millis();
-        // parse JSON
+        // 处理文本消息，期望是 JSON 格式
         StaticJsonDocument<256> doc;
         DeserializationError err = deserializeJson(doc, payload, length);
         if (err)
@@ -74,22 +72,45 @@ void handleWSMessage(uint8_t num, WStype_t type, uint8_t *payload, size_t length
                 const char *mode = doc["mode"];
                 if (strcmp(mode, "on") == 0)
                 {
+                    // 对于 on/off 模式，不允许携带额外字段如 hz/period_ms
+                    if (doc.containsKey("hz") || doc.containsKey("period_ms") || doc.containsKey("duty"))
+                    {
+                        sendError(num, "bad_request", "unknown field");
+                        return;
+                    }
                     LedController::setModeOn();
                     Storage::saveState();
                 }
                 else if (strcmp(mode, "off") == 0)
                 {
+                    if (doc.containsKey("hz") || doc.containsKey("period_ms") || doc.containsKey("duty"))
+                    {
+                        sendError(num, "bad_request", "unknown field");
+                        return;
+                    }
                     LedController::setModeOff();
                     Storage::saveState();
                 }
                 else if (strcmp(mode, "blink") == 0)
                 {
+                    // blink expects 'hz' only
+                    if (doc.containsKey("period_ms"))
+                    {
+                        sendError(num, "bad_request", "unknown field hz");
+                        return;
+                    }
                     int hz = doc.containsKey("hz") ? doc["hz"].as<int>() : 2;
                     LedController::setModeBlink(max(1, hz));
                     Storage::saveState();
                 }
                 else if (strcmp(mode, "breathe") == 0)
                 {
+                    // breathe expects 'period_ms' only
+                    if (doc.containsKey("hz"))
+                    {
+                        sendError(num, "bad_request", "unknown field hz");
+                        return;
+                    }
                     int period = doc.containsKey("period_ms") ? doc["period_ms"].as<int>() : 1500;
                     LedController::setModeBreathe(max(200, period));
                     Storage::saveState();
@@ -99,7 +120,7 @@ void handleWSMessage(uint8_t num, WStype_t type, uint8_t *payload, size_t length
                     sendError(num, "bad_request", "unknown mode");
                     return;
                 }
-                // ack: send status
+                // 操作成功：广播最新状态用于 UI 更新
                 StatusReporter::broadcast();
                 return;
             }
@@ -108,6 +129,12 @@ void handleWSMessage(uint8_t num, WStype_t type, uint8_t *payload, size_t length
                 if (!doc.containsKey("duty"))
                 {
                     sendError(num, "bad_request", "missing duty");
+                    return;
+                }
+                // 不允许携带多余字段
+                if (doc.containsKey("hz") || doc.containsKey("period_ms"))
+                {
+                    sendError(num, "bad_request", "unknown field hz");
                     return;
                 }
                 int duty = doc["duty"].as<int>();
@@ -141,14 +168,14 @@ void WebsocketHandler::begin(WebSocketsServer *server)
     ws = server;
     if (!ws)
         return;
-    // override the onEvent - point to our handler function
+    // 覆写 onEvent 指向处理函数
     ws->onEvent([](uint8_t num, WStype_t type, uint8_t *payload, size_t length)
                 { handleWSMessage(num, type, payload, length); });
 }
 
 void WebsocketHandler::loop()
 {
-    // no-op: ws->loop happens in Network::loop()
+    // 不进行操作：ws->loop() 在 Network::loop() 中调用
 }
 
 void WebsocketHandler::broadcastText(const String &s)
@@ -157,12 +184,23 @@ void WebsocketHandler::broadcastText(const String &s)
         return;
     if (ws->connectedClients() == 0)
     {
-        // no clients, increment dropped
+        // 没有客户端连接时，丢弃消息并计数
         dropped++;
         return;
     }
-    // WebSocketsServer::broadcastTXT takes a non-const String& on some cores;
-    // pass a local copy to avoid qualifier/const issues with some compilers.
+    // 客户端恢复连接，且之前有丢弃的消息，发送警告
+    if (dropped > 0)
+    {
+        StaticJsonDocument<128> alert;
+        alert["evt"] = "alert";
+        alert["type"] = "backpressure";
+        alert["dropped"] = dropped;
+        String aout;
+        serializeJson(alert, aout);
+        ws->broadcastTXT(aout);
+        // reset dropped after notifying
+        dropped = 0;
+    }
     String tmp = s;
     ws->broadcastTXT(tmp);
 }
@@ -170,4 +208,9 @@ void WebsocketHandler::broadcastText(const String &s)
 int WebsocketHandler::getConnectedCount()
 {
     return connectedClients;
+}
+
+int WebsocketHandler::getDropped()
+{
+    return (int)dropped;
 }
