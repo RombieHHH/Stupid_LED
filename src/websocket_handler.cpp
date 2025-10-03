@@ -39,7 +39,6 @@ void handleWSMessage(uint8_t num, WStype_t type, uint8_t *payload, size_t length
         connectedClients = max(0, connectedClients - 1);
         Serial.printf("Websocket disconnected clients=%d\n", connectedClients);
         // 仅当 SoftAP 上没有 station（WiFi 客户端）时才进入 breathe-wait。
-        // 这样可以避免单纯 WS 断开（例如短暂网络抖动）导致不必要的模式切换。
         int stations = Network::getClientCount();
         Serial.printf("WiFi stations=%d\n", stations);
         if (stations == 0)
@@ -93,7 +92,6 @@ void handleWSMessage(uint8_t num, WStype_t type, uint8_t *payload, size_t length
                 }
                 else if (strcmp(mode, "blink") == 0)
                 {
-                    // blink expects 'hz' only
                     if (doc.containsKey("period_ms"))
                     {
                         sendError(num, "bad_request", "unknown field hz");
@@ -105,7 +103,6 @@ void handleWSMessage(uint8_t num, WStype_t type, uint8_t *payload, size_t length
                 }
                 else if (strcmp(mode, "breathe") == 0)
                 {
-                    // breathe expects 'period_ms' only
                     if (doc.containsKey("hz"))
                     {
                         sendError(num, "bad_request", "unknown field hz");
@@ -198,7 +195,7 @@ void WebsocketHandler::broadcastText(const String &s)
         String aout;
         serializeJson(alert, aout);
         ws->broadcastTXT(aout);
-        // reset dropped after notifying
+        // 重置丢弃计数
         dropped = 0;
     }
     String tmp = s;

@@ -305,6 +305,5 @@ IPAddress Network::getAPIP()
 
 int Network::getClientCount()
 {
-    // Query the SoftAP station count directly from the WiFi stack.
     return WiFi.softAPgetStationNum();
 }

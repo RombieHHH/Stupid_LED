@@ -35,7 +35,6 @@ namespace StatusReporter
                 for (int i = 0; i < (int)sta_list.num; ++i)
                 {
                     wifi_sta_info_t info = sta_list.sta[i];
-                    // info.rssi is int8_t representing dBm for the client's last packet
                     if ((int)info.rssi > best)
                         best = (int)info.rssi;
                 }
@@ -53,7 +52,6 @@ namespace StatusReporter
         doc["period_ms"] = LedController::getBreathePeriod();
     doc["brightness"] = LedController::getBrightness();
     doc["dropped"] = WebsocketHandler::getDropped();
-        // report counts: wifi stations (SoftAP clients) and websocket connections
         doc["wifi_clients"] = WiFi.softAPgetStationNum();
         doc["ws_clients"] = WebsocketHandler::getConnectedCount();
 
@@ -99,7 +97,7 @@ namespace StatusReporter
 
         String out;
         serializeJson(doc, out);
-        // send to a single client through ws server: use Network::getWebSocketServer()
+        // 发送到指定客户端
         auto ws = Network::getWebSocketServer();
         if (ws)
             ws->sendTXT((uint8_t)clientNum, out);
@@ -107,7 +105,6 @@ namespace StatusReporter
 
     void sendTo(uint8_t clientNum)
     {
-        // forward to int-based implementation
         sendTo((int)clientNum);
     }
 }

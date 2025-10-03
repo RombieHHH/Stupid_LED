@@ -4,17 +4,15 @@
 namespace LedController
 {
     void begin();
-    void update(); // must be called frequently in loop()
+    void update();
     void setModeOn();
     void setModeOff();
     void setModeBlink(int hz);
     void setModeBreathe(int period_ms);
     void setBrightness(uint8_t duty);
-
-    // called by websocket layer when client connects/disconnects
     void onClientConnected();
-    void enterBreatheWait(); // when disconnected -> go breathe waiting
-    // getters for status
+    void enterBreatheWait();
+    // 用于在客户端断开连接时进入 breathe-wait 状态的保存变量
     const char *getModeStr();
     int getBlinkHz();
     int getBreathePeriod();

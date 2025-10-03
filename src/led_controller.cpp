@@ -29,7 +29,7 @@ namespace LedController
     static unsigned long lastMs = 0;
     static unsigned long lastToggleMs = 0;
     static bool blinkState = false;
-    // saved state before entering breathe-wait so we can restore on reconnect
+    // 用于在客户端断开连接时进入 breathe-wait 状态的保存变量
     static Mode savedModeBeforeWait = MODE_BREATHE;
     static int savedBlinkHzBeforeWait = 2;
     static int savedBreathePeriodBeforeWait = 1500;
@@ -67,7 +67,7 @@ namespace LedController
         {
             setModeBlink(Storage::getSavedBlinkHz());
         }
-        else // default to breathe (or any other unrecognized value)
+        else
         {
             setModeBreathe(Storage::getSavedBreathePeriod());
         }
@@ -119,7 +119,7 @@ namespace LedController
             float phase = fmod((float)now, (float)breathePeriod) / (float)breathePeriod; // 0..1
             // 使用 (1 - cos(2*pi*phase))/2 来实现平滑呼吸曲线
             float val = (1.0f - cosf(2.0f * 3.14159265f * phase)) * 0.5f;
-            // if in breathe wait, reduce amplitude slightly
+            // 应用亮度缩放
             if (currentMode == MODE_BREATHE_WAIT)
                 val *= 0.6f;
             uint8_t duty = (uint8_t)constrain((int)(val * (float)brightness), 0, 255);

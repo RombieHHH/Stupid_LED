@@ -7,7 +7,7 @@ namespace Storage
     void saveState();
     void loadState();
 
-    // getters for initial loading in LedController
+    // 保存和加载 LED 控制器的状态
     const char *getSavedMode();
     int getSavedBlinkHz();
     int getSavedBreathePeriod();
