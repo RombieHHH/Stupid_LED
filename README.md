@@ -16,13 +16,13 @@
 
 - `platformio.ini` - PlatformIO 项目配置
 - `src/` - 源码
+
   - `main.cpp` - 程序入口（初始化模块、主循环）
   - `network.cpp/.h` - 启动 SoftAP、HTTP server 与 WebSocket server；嵌入网页 HTML/JS
   - `websocket_handler.cpp/.h` - WebSocket 消息解析、命令处理、广播接口
   - `status_reporter.cpp/.h` - 汇总设备状态并广播/单发给客户端
   - `led_controller.cpp/.h` - LED 模式逻辑和 PWM 驱动（LEDC）
   - `storage.cpp/.h` - 保存/恢复模式与参数
-- `test/` - 单元测试占位（PlatformIO 测试）
 
 ## 构建与刷写
 
@@ -92,12 +92,6 @@ WebSocket server 默认监听 81 端口。客户端可以发送 JSON 命令并�
   - 若有 SoftAP 客户端，固件会尝试使用 ESP-IDF API 获取已连接客户端的 RSSI（返回连接客户端中信号最强的一个的 RSSI）
   - 否则如果设备作为 STA 连接到外部 AP，会返回 `WiFi.RSSI()` 的值
   - 如果两者都不可用，返回 0
-
-## 注意与限制
-
-- RSSI 的获取：SoftAP 模式下通过 `esp_wifi_ap_get_sta_list()` 获取的 RSSI 是设备接收最后数据包时测得的一个瞬时值，可能会跳变；如果没有数据包或客户端刚连接，RSSI 可能未能立即更新。
-- JSON 库（ArduinoJson）：部分代码仍使用 `StaticJsonDocument` 等标记为已弃用的 API。编译时会看到警告，建议在未来逐步迁移到新的 API（`JsonDocument` / `doc["key"].is<T>()` 等）。
-- WebSocket 与 SoftAP 的 client 计数是分开的：`wifi_clients` 指连接到 SoftAP 的 WiFi 终端数，`ws_clients` 指当前 WebSocket 连接数（可能小于等于 wifi_clients，取决于客户端是否建立 WebSocket）。
 
 ## 调试建议
 
